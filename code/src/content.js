@@ -111,10 +111,27 @@
     return /^[\p{N}\s.,，。、:：;；/／\\\-‐‑‒–—―+＋%％$＄€£¥￥₩₹₽₺()（）\[\]{}<>!?！？#№°℃℉×*·'’“”=~…]+$/u.test(value);
   }
 
-  function isAlreadyTargetLanguage(text, targetLanguage) {
+  async function isAlreadyTargetLanguage(text, targetLanguage) {
     const targetCode = getTargetLanguageCode(targetLanguage);
-    return isLanguageNeutralContent(text)
-      || Boolean(targetCode && detectTextLanguage(text) === targetCode);
+    if (isLanguageNeutralContent(text)) return true;
+    if (!targetCode) return false;
+
+    const localLanguage = detectTextLanguage(text);
+    if (localLanguage) return localLanguage === targetCode;
+
+    // 拉丁字母短词通常没有足够的词频特征，改用浏览器内置 CLD 检测，不发送网络请求。
+    try {
+      const detection = await chrome.i18n.detectLanguage(text);
+      const bestMatch = detection?.languages?.[0];
+      if (bestMatch?.language === targetCode
+          && (detection.isReliable || bestMatch.percentage >= 75)) {
+        return true;
+      }
+      if (bestMatch && (detection.isReliable || bestMatch.percentage >= 75)) return false;
+    } catch {
+      // API 不可用或文本太短时回退为“不确定”，避免错误跳过翻译。
+    }
+    return false;
   }
 
   function clearPageTranslations() {
@@ -204,10 +221,12 @@
       targetLanguage = null;
     }
     if (requestId !== selectionUiRequestId) return;
-    if (window.getSelection()?.toString().trim() !== data.selectedText) return;
-    const alreadyTargetLanguage = Boolean(targetLanguage) && data.segments.every(({ sourceText }) =>
+    const languageMatches = await Promise.all(data.segments.map(({ sourceText }) =>
       isAlreadyTargetLanguage(sourceText, targetLanguage)
-    );
+    ));
+    if (requestId !== selectionUiRequestId) return;
+    if (window.getSelection()?.toString().trim() !== data.selectedText) return;
+    const alreadyTargetLanguage = Boolean(targetLanguage) && languageMatches.every(Boolean);
     // 预先更新浏览器右键菜单；Chrome 在菜单打开后没有可依赖的动态筛选事件。
     chrome.runtime.sendMessage({
       type: "SET_DEFAULT_TRANSLATE_MENU_VISIBILITY",
@@ -423,10 +442,14 @@
       status: "pending",
       translatedText: ""
     }));
+    const languageMatches = await Promise.all(paragraphs.map((paragraph) =>
+      isAlreadyTargetLanguage(paragraph.sourceText, effectiveTargetLanguage)
+    ));
+    if (!isCurrentTask()) return;
     const paragraphsToTranslate = [];
-    paragraphs.forEach((paragraph) => {
+    paragraphs.forEach((paragraph, index) => {
       // 以单个网页段落为判断单位；同语种段落不进入请求队列，其余段落继续参与批次翻译。
-      if (isAlreadyTargetLanguage(paragraph.sourceText, effectiveTargetLanguage)) {
+      if (languageMatches[index]) {
         removeExistingTranslation(paragraph.element);
         return;
       }
