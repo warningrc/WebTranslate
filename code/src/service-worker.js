@@ -39,14 +39,15 @@ async function getConfig() {
   return { ...DEFAULT_CONFIG, ...stored };
 }
 
-/** 重建右键菜单，使默认菜单项的语言标签始终与管理页配置一致。 */
+/** 重建默认目标语言快捷项和“翻译为”子菜单。 */
 async function rebuildContextMenus() {
   const config = await getConfig();
   await new Promise((resolve) => chrome.contextMenus.removeAll(resolve));
   chrome.contextMenus.create({
     id: CONTEXT_MENU_DEFAULT_ID,
     title: `翻译为${config.targetLanguage}`,
-    contexts: ["selection"]
+    contexts: ["selection"],
+    visible: true
   });
   chrome.contextMenus.create({
     id: CONTEXT_MENU_PARENT_ID,
@@ -54,8 +55,6 @@ async function rebuildContextMenus() {
     contexts: ["selection"]
   });
   CONTEXT_MENU_LANGUAGES.forEach((language, index) => {
-    // 当前默认语言已在主菜单提供，子菜单不重复列出同一选项。
-    if (language === config.targetLanguage) return;
     chrome.contextMenus.create({
       id: `${CONTEXT_MENU_LANGUAGE_PREFIX}${index}`,
       parentId: CONTEXT_MENU_PARENT_ID,
@@ -441,37 +440,52 @@ function parseTranslationResponse(result, paragraphs) {
   if (!Array.isArray(parsed.translations)) {
     throw new Error("模型返回结果缺少 translations 数组");
   }
-  if (parsed.translations.length !== paragraphs.length) {
-    throw new Error(`模型返回了 ${parsed.translations.length} 段译文，预期 ${paragraphs.length} 段`);
-  }
-  for (const item of parsed.translations) {
-    if (!item || typeof item.id !== "string" || typeof item.text !== "string") {
-      throw new Error("模型返回了无效的段落结果");
-    }
-    if (!item.text.trim()) {
-      throw new Error("模型返回了空译文");
-    }
-  }
-
   const expectedIds = paragraphs.map((paragraph) => paragraph.id);
   const expectedIdSet = new Set(expectedIds);
-  const actualIds = parsed.translations.map((item) => item.id);
-  const actualIdSet = new Set(actualIds);
-  const idsAreComplete = actualIdSet.size === expectedIds.length
-    && actualIds.every((id) => expectedIdSet.has(id));
-  if (idsAreComplete) return parsed.translations;
+  const translationsById = new Map();
+  let allItemsWellFormed = true;
+  for (const item of parsed.translations) {
+    if (!item || typeof item.id !== "string" || typeof item.text !== "string" || !item.text.trim()) {
+      allItemsWellFormed = false;
+      continue;
+    }
+    // 只收集本次请求的 ID；重复 ID 和模型额外编造的记录不覆盖有效译文。
+    if (expectedIdSet.has(item.id) && !translationsById.has(item.id)) {
+      translationsById.set(item.id, item.text.trim());
+    }
+  }
 
-  // 模型偶尔会重复或改写 ID。数量与译文均完整时按请求顺序兜底关联，避免整批失败；
-  // 数量不符仍拒绝，防止漏译后把其他段落错误地配给原文。
-  return parsed.translations.map((item, index) => ({
-    id: expectedIds[index],
-    text: item.text.trim()
-  }));
+  if (translationsById.size === expectedIds.length) {
+    return expectedIds.map((id) => ({ id, text: translationsById.get(id) }));
+  }
+
+  // ID 格式不规范时，仅在记录数量完全相等且字段有效时才按位置兜底；数量不等不能安全猜测对应关系。
+  if (parsed.translations.length === expectedIds.length && allItemsWellFormed) {
+    return parsed.translations.map((item, index) => ({
+      id: expectedIds[index],
+      text: item.text.trim()
+    }));
+  }
+
+  const missingIds = expectedIds.filter((id) => !translationsById.has(id));
+  throw new Error(`模型未能可靠返回全部段落，缺少 ${missingIds.join(", ") || "有效译文"}`);
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || !["TRANSLATE_BATCH", "CANCEL_TRANSLATION", "CLEAR_TRANSLATION_CACHE", "LIST_MODELS"].includes(message.type)) {
+  if (!message || !["TRANSLATE_BATCH", "CANCEL_TRANSLATION", "CLEAR_TRANSLATION_CACHE", "LIST_MODELS", "SET_DEFAULT_TRANSLATE_MENU_VISIBILITY"].includes(message.type)) {
     return false;
+  }
+
+  if (message.type === "SET_DEFAULT_TRANSLATE_MENU_VISIBILITY") {
+    if (sender.id !== chrome.runtime.id || !sender.tab || typeof message.visible !== "boolean") {
+      sendResponse({ ok: false, error: "无权更新右键菜单状态" });
+      return false;
+    }
+    chrome.contextMenus.update(CONTEXT_MENU_DEFAULT_ID, { visible: message.visible }, () => {
+      const error = chrome.runtime.lastError;
+      sendResponse(error ? { ok: false, error: error.message } : { ok: true });
+    });
+    return true;
   }
 
   if (message.type === "LIST_MODELS") {

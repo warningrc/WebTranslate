@@ -7,6 +7,7 @@
   let currentTaskHostId;
   let activeRequestId;
   let taskInProgress = false;
+  let selectionUiRequestId = 0;
 
   function getRoot() {
     if (root?.isConnected) return root;
@@ -38,6 +39,82 @@
     document.querySelectorAll(`.wt-pending-indicator[data-task-id="${taskHostId}"]`).forEach((node) => node.remove());
     removeEmptyHostsForTask(taskHostId);
     enableFailedParagraphRetries();
+  }
+
+  const LATIN_LANGUAGE_MARKERS = {
+    en: new Set("the and for that with this from are is was were you your have has not but they their will would can could about into there what when who where which it in of on to as he she".split(" ")),
+    fr: new Set("le la les de des du un une et est sont dans pour avec pas que qui cette ces sur par plus nous vous je il elle".split(" ")),
+    es: new Set("el la los las de del un una y es son en para con por que como esta este los pero más nosotros".split(" ")),
+    de: new Set("der die das den dem des ein eine und ist sind in für mit nicht auf von zu ich sie wir aber auch".split(" ")),
+    pt: new Set("o a os as de do da dos das um uma e é são em para com por que como esta este não mais você".split(" ")),
+    it: new Set("il lo la gli le di del un una e è sono in per con che non una questo questa più come".split(" ")),
+    nl: new Set("de het een en van voor met zijn is niet op dat dit voor als maar ook wordt".split(" ")),
+    sv: new Set("och det att en som på är av för med till inte den ett jag vi de har kan".split(" ")),
+    pl: new Set("i w na nie jest są do z dla że jak oraz się to ten ta jako".split(" ")),
+    tr: new Set("ve bir bu için ile değil çok daha olarak olan da de mi ben sen".split(" ")),
+    id: new Set("dan yang untuk dengan ini itu tidak adalah dalam pada dari sebagai akan juga bisa".split(" ")),
+    vi: new Set("và là của có trong một những được cho với không này các người tôi bạn".split(" "))
+  };
+
+  function getTargetLanguageCode(targetLanguage) {
+    const target = (targetLanguage || "").toLocaleLowerCase();
+    if (target.includes("中文") || target.includes("chinese") || target === "zh") return "zh";
+    if (target.includes("english") || target === "en") return "en";
+    if (target.includes("日本") || target.includes("japanese") || target === "ja") return "ja";
+    if (target.includes("한국") || target.includes("korean") || target === "ko") return "ko";
+    if (target.includes("français") || target.includes("french") || target === "fr") return "fr";
+    if (target.includes("deutsch") || target.includes("german") || target === "de") return "de";
+    if (target.includes("español") || target.includes("spanish") || target === "es") return "es";
+    if (target.includes("português") || target.includes("portuguese") || target === "pt") return "pt";
+    if (target.includes("italiano") || target.includes("italian") || target === "it") return "it";
+    if (target.includes("русский") || target.includes("russian") || target === "ru") return "ru";
+    if (target.includes("українська") || target.includes("ukrainian") || target === "uk") return "uk";
+    if (target.includes("العربية") || target.includes("arabic") || target === "ar") return "ar";
+    if (target.includes("हिन्दी") || target.includes("hindi") || target === "hi") return "hi";
+    if (target.includes("ไทย") || target.includes("thai") || target === "th") return "th";
+    if (target.includes("tiếng việt") || target.includes("vietnamese") || target === "vi") return "vi";
+    if (target.includes("bahasa indonesia") || target.includes("indonesian") || target === "id") return "id";
+    if (target.includes("türkçe") || target.includes("turkish") || target === "tr") return "tr";
+    if (target.includes("nederlands") || target.includes("dutch") || target === "nl") return "nl";
+    if (target.includes("polski") || target.includes("polish") || target === "pl") return "pl";
+    if (target.includes("עברית") || target.includes("hebrew") || target === "he") return "he";
+    if (target.includes("svenska") || target.includes("swedish") || target === "sv") return "sv";
+    return null;
+  }
+
+  /** 仅对置信度较高的同语种段落跳过；判断不确定时保留正常翻译路径。 */
+  function detectTextLanguage(text) {
+    if (/[\u3040-\u30ff]/u.test(text)) return "ja";
+    if (/[\uac00-\ud7af]/u.test(text)) return "ko";
+    if (/[\u0e00-\u0e7f]/u.test(text)) return "th";
+    if (/[\u0600-\u06ff]/u.test(text)) return "ar";
+    if (/[\u0590-\u05ff]/u.test(text)) return "he";
+    if (/[\u0900-\u097f]/u.test(text)) return "hi";
+    if (/[\u0400-\u04ff]/u.test(text)) return /[іїєґ]/iu.test(text) ? "uk" : "ru";
+    if (/[\u3400-\u9fff]/u.test(text)) return "zh";
+
+    const words = text.toLocaleLowerCase().match(/\p{L}+/gu) || [];
+    if (!words.length) return null;
+    const scores = Object.entries(LATIN_LANGUAGE_MARKERS).map(([language, markers]) => ({
+      language,
+      score: words.reduce((total, word) => total + (markers.has(word) ? 1 : 0), 0)
+    })).sort((left, right) => right.score - left.score);
+    const [best, second] = scores;
+    // 两个独立常见词且领先其他语言，才判断为拉丁字母语言，降低短句误判。
+    return best.score >= 2 && best.score > second.score ? best.language : null;
+  }
+
+  /** 纯数字、日期、时间、比例等跨语言格式不需要翻译，应对任何目标语言都跳过。 */
+  function isLanguageNeutralContent(text) {
+    const value = text.trim();
+    if (!/\p{N}/u.test(value)) return false;
+    return /^[\p{N}\s.,，。、:：;；/／\\\-‐‑‒–—―+＋%％$＄€£¥￥₩₹₽₺()（）\[\]{}<>!?！？#№°℃℉×*·'’“”=~…]+$/u.test(value);
+  }
+
+  function isAlreadyTargetLanguage(text, targetLanguage) {
+    const targetCode = getTargetLanguageCode(targetLanguage);
+    return isLanguageNeutralContent(text)
+      || Boolean(targetCode && detectTextLanguage(text) === targetCode);
   }
 
   function clearPageTranslations() {
@@ -114,12 +191,38 @@
     const range = selection.getRangeAt(0).cloneRange();
     const rect = range.getBoundingClientRect();
     const segments = getSelectedSegments(range, text);
-    return segments.length ? { segments, rect } : null;
+    return segments.length ? { segments, rect, selectedText: text } : null;
   }
 
-  function showActionButton(data) {
+  async function inspectSelectionLanguage(data, requestId) {
+    let targetLanguage;
+    try {
+      const settings = await chrome.storage.local.get({ targetLanguage: "简体中文" });
+      targetLanguage = settings.targetLanguage;
+    } catch {
+      // 设置读取失败时不根据默认值误隐藏入口，仍允许用户尝试翻译。
+      targetLanguage = null;
+    }
+    if (requestId !== selectionUiRequestId) return;
+    if (window.getSelection()?.toString().trim() !== data.selectedText) return;
+    const alreadyTargetLanguage = Boolean(targetLanguage) && data.segments.every(({ sourceText }) =>
+      isAlreadyTargetLanguage(sourceText, targetLanguage)
+    );
+    // 预先更新浏览器右键菜单；Chrome 在菜单打开后没有可依赖的动态筛选事件。
+    chrome.runtime.sendMessage({
+      type: "SET_DEFAULT_TRANSLATE_MENU_VISIBILITY",
+      visible: !alreadyTargetLanguage
+    }).catch(() => {});
+    return { alreadyTargetLanguage };
+  }
+
+  async function showActionButton(data) {
+    const requestId = ++selectionUiRequestId;
     const shadow = getRoot().shadowRoot;
     shadow.querySelector(".wt-action")?.remove();
+    const selectionState = await inspectSelectionLanguage(data, requestId);
+    if (!selectionState || selectionState.alreadyTargetLanguage) return;
+
     const button = document.createElement("button");
     button.className = "wt-action";
     button.dataset.mode = "translate";
@@ -305,30 +408,45 @@
     if (previousRequestId !== undefined) cancelBackgroundRequest(previousRequestId);
     removeEmptyHostsForTask(previousTaskHostId);
 
-    const preferences = await chrome.storage.local.get({ contextEnabled: true });
+    const preferences = await chrome.storage.local.get({ contextEnabled: true, targetLanguage: "简体中文" });
     if (!isCurrentTask()) return;
     const contextEnabled = preferences.contextEnabled !== false;
+    const effectiveTargetLanguage = targetLanguage || preferences.targetLanguage;
     const paragraphs = segments.map(({ element, sourceText }, index) => ({
       id: `paragraph-${taskId}-${index + 1}`,
       element,
       sourceText,
       taskId,
-      targetLanguage,
+      targetLanguage: effectiveTargetLanguage,
       contextBefore: contextEnabled && index > 0 ? segments[index - 1].sourceText : "",
       contextAfter: contextEnabled && index + 1 < segments.length ? segments[index + 1].sourceText : "",
       status: "pending",
       translatedText: ""
     }));
+    const paragraphsToTranslate = [];
+    paragraphs.forEach((paragraph) => {
+      // 以单个网页段落为判断单位；同语种段落不进入请求队列，其余段落继续参与批次翻译。
+      if (isAlreadyTargetLanguage(paragraph.sourceText, effectiveTargetLanguage)) {
+        removeExistingTranslation(paragraph.element);
+        return;
+      }
+      paragraphsToTranslate.push(paragraph);
+    });
     // 整个选区已进入翻译任务，先为所有段落显示提示，明确包含尚在队列中的段落。
-    paragraphs.forEach(showPendingIndicator);
+    paragraphsToTranslate.forEach(showPendingIndicator);
     const shadow = getRoot().shadowRoot;
     const button = shadow.querySelector(".wt-action");
     button?.remove();
+    if (paragraphsToTranslate.length === 0) {
+      taskInProgress = false;
+      activeRequestId = undefined;
+      return;
+    }
 
     // 采用小批次请求，减少请求次数并限制单次上下文长度。
     const batchSize = 5;
-    for (let start = 0; start < paragraphs.length && isCurrentTask(); start += batchSize) {
-      const batch = paragraphs.slice(start, start + batchSize);
+    for (let start = 0; start < paragraphsToTranslate.length && isCurrentTask(); start += batchSize) {
+      const batch = paragraphsToTranslate.slice(start, start + batchSize);
       try {
         await runTranslationBatch(batch, taskId);
         if (!isCurrentTask()) return;
@@ -369,13 +487,24 @@
 
   function hideTranslateButtonIfSelectionCleared() {
     const selectedText = window.getSelection()?.toString().trim();
+    selectionUiRequestId += 1;
     if (selectedText) return;
     const button = root?.shadowRoot?.querySelector('.wt-action[data-mode="translate"]');
     button?.remove();
   }
 
+  let selectionMenuUpdateTimer;
+  function handleSelectionChange() {
+    hideTranslateButtonIfSelectionCleared();
+    const data = getSelectionData();
+    if (!data) return;
+    const requestId = selectionUiRequestId;
+    clearTimeout(selectionMenuUpdateTimer);
+    selectionMenuUpdateTimer = setTimeout(() => inspectSelectionLanguage(data, requestId), 100);
+  }
+
   // 选区也可能通过键盘取消或点击页面空白处清除，因此不能只依赖 mouseup。
-  document.addEventListener("selectionchange", hideTranslateButtonIfSelectionCleared);
+  document.addEventListener("selectionchange", handleSelectionChange);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "TRANSLATE_SELECTION") {
