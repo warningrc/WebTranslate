@@ -5,6 +5,7 @@ const DEFAULT_CONFIG = {
   targetLanguage: "简体中文",
   style: "自然表达",
   customStylePrompt: "优先使用自然、地道、简洁的中文表达，避免逐词直译和生硬措辞。保留原意、语气和信息，不擅自增删。",
+  contextEnabled: true,
   timeoutMs: 60000
 };
 const activeRequests = new Map();
@@ -12,8 +13,19 @@ const CACHE_DB_NAME = "webtranslate-translation-cache";
 const CACHE_STORE_NAME = "translations";
 const CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 1000;
-const TRANSLATION_PROMPT_VERSION = 1;
+const TRANSLATION_PROMPT_VERSION = 2;
 let cacheDatabasePromise;
+
+/** 右键菜单提供常用目标语言；默认翻译项始终使用设置页中的目标语言。 */
+const CONTEXT_MENU_LANGUAGES = [
+  "简体中文", "繁體中文", "English", "日本語", "한국어", "Français",
+  "Deutsch", "Español", "Português", "Italiano", "Русский", "العربية",
+  "हिन्दी", "ไทย", "Tiếng Việt", "Bahasa Indonesia", "Türkçe", "Nederlands",
+  "Polski", "Українська", "עברית", "Svenska"
+];
+const CONTEXT_MENU_DEFAULT_ID = "webtranslate-translate-default";
+const CONTEXT_MENU_PARENT_ID = "webtranslate-translate-to";
+const CONTEXT_MENU_LANGUAGE_PREFIX = "webtranslate-translate-language-";
 
 function getRequestKey(sender, requestId) {
   return `${sender.tab?.id ?? "no-tab"}:${sender.frameId ?? 0}:${requestId}`;
@@ -26,6 +38,65 @@ async function getConfig() {
   const stored = await chrome.storage.local.get(DEFAULT_CONFIG);
   return { ...DEFAULT_CONFIG, ...stored };
 }
+
+/** 重建右键菜单，使默认菜单项的语言标签始终与管理页配置一致。 */
+async function rebuildContextMenus() {
+  const config = await getConfig();
+  await new Promise((resolve) => chrome.contextMenus.removeAll(resolve));
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_DEFAULT_ID,
+    title: `翻译为${config.targetLanguage}`,
+    contexts: ["selection"]
+  });
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_PARENT_ID,
+    title: "翻译为",
+    contexts: ["selection"]
+  });
+  CONTEXT_MENU_LANGUAGES.forEach((language, index) => {
+    // 当前默认语言已在主菜单提供，子菜单不重复列出同一选项。
+    if (language === config.targetLanguage) return;
+    chrome.contextMenus.create({
+      id: `${CONTEXT_MENU_LANGUAGE_PREFIX}${index}`,
+      parentId: CONTEXT_MENU_PARENT_ID,
+      title: language,
+      contexts: ["selection"]
+    });
+  });
+}
+
+function initializeContextMenus() {
+  rebuildContextMenus().catch(() => {
+    // 菜单注册失败不应影响扩展其他功能；浏览器下次启动或设置变化时会再次尝试。
+  });
+}
+
+chrome.runtime.onInstalled.addListener(initializeContextMenus);
+chrome.runtime.onStartup.addListener(initializeContextMenus);
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.targetLanguage) initializeContextMenus();
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab?.id) return;
+  try {
+    let targetLanguage;
+    if (info.menuItemId === CONTEXT_MENU_DEFAULT_ID) {
+      targetLanguage = (await getConfig()).targetLanguage;
+    } else if (typeof info.menuItemId === "string" && info.menuItemId.startsWith(CONTEXT_MENU_LANGUAGE_PREFIX)) {
+      const index = Number(info.menuItemId.slice(CONTEXT_MENU_LANGUAGE_PREFIX.length));
+      targetLanguage = CONTEXT_MENU_LANGUAGES[index];
+    }
+    if (!targetLanguage) return;
+    await chrome.tabs.sendMessage(
+      tab.id,
+      { type: "TRANSLATE_SELECTION", targetLanguage },
+      { frameId: info.frameId }
+    );
+  } catch {
+    // 浏览器内置页面等不允许注入内容脚本，忽略无法翻译的右键操作。
+  }
+});
 
 /** 接受 API 基础地址，并兼容旧设置中误填的 /chat/completions 完整路径。 */
 function normalizeApiBaseUrl(value) {
@@ -113,7 +184,7 @@ function requestResult(request) {
 }
 
 /** 缓存键包含所有会改变译文的设置和原文，但不包含 API Key。 */
-async function createCacheKey(sourceText, config) {
+async function createCacheKey(sourceText, config, contextBefore = "", contextAfter = "") {
   const identity = JSON.stringify({
     promptVersion: TRANSLATION_PROMPT_VERSION,
     endpoint: normalizeApiBaseUrl(config.endpoint),
@@ -121,6 +192,9 @@ async function createCacheKey(sourceText, config) {
     targetLanguage: config.targetLanguage.trim(),
     style: config.style.trim(),
     customStylePrompt: (config.customStylePrompt || "").trim(),
+    contextEnabled: Boolean(config.contextEnabled),
+    contextBefore: config.contextEnabled ? contextBefore : "",
+    contextAfter: config.contextEnabled ? contextAfter : "",
     sourceText
   });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identity));
@@ -198,8 +272,15 @@ async function clearTranslationCache() {
  * 将一批段落发送给 OpenAI 兼容的 Chat Completions 接口。
  * 要求模型返回 JSON，借此确保段落 ID 和顺序不会因为模型自由发挥而丢失。
  */
-async function translateBatch(paragraphs, signal) {
-  const config = await getConfig();
+async function translateBatch(paragraphs, signal, requestedTargetLanguage) {
+  const storedConfig = await getConfig();
+  // 右键“翻译为”只覆盖本次请求配置，不写回用户保存的默认目标语言。
+  const config = {
+    ...storedConfig,
+    targetLanguage: typeof requestedTargetLanguage === "string" && requestedTargetLanguage.trim()
+      ? requestedTargetLanguage.trim()
+      : storedConfig.targetLanguage
+  };
   if (!config.model) {
     throw new Error("请先配置模型名称");
   }
@@ -212,7 +293,7 @@ async function translateBatch(paragraphs, signal) {
 
   const cacheKeys = await Promise.all(paragraphs.map(async (paragraph) => ({
     id: paragraph.id,
-    key: await createCacheKey(paragraph.text, config)
+    key: await createCacheKey(paragraph.text, config, paragraph.contextBefore, paragraph.contextAfter)
   })));
   const cacheKeyById = new Map(cacheKeys.map(({ id, key }) => [id, key]));
   const cachedByKey = new Map();
@@ -234,6 +315,13 @@ async function translateBatch(paragraphs, signal) {
     throw new Error("请先在插件设置中配置 API Key");
   }
 
+  // 用短且稳定的批内 ID 降低模型漏写、重复或改写长 ID 的概率；缓存映射仍使用原段落 ID。
+  const requestParagraphs = uncachedParagraphs.map((paragraph, index) => ({
+    ...paragraph,
+    originalId: paragraph.id,
+    id: `p${index + 1}`
+  }));
+
   const payload = {
     model: config.model,
     temperature: 0.2,
@@ -243,6 +331,7 @@ async function translateBatch(paragraphs, signal) {
         content: [
           "你是专业网页翻译助手。",
           `请将每个段落翻译成${config.targetLanguage}，翻译风格为${config.style}。`,
+          "自动识别每个待翻译段落的原文语言，再翻译成目标语言；不要输出语言识别结果。",
           "先理解句子在上下文中的真实含义，再用目标语言母语者自然、顺畅的表达重写；避免逐词对照、直译腔、不必要的名词化和生硬措辞。",
           "保留原文语气和信息，不擅自增删内容；品牌名、产品名和人名通常保留原文。",
           config.style === "自然表达"
@@ -255,17 +344,26 @@ async function translateBatch(paragraphs, signal) {
           config.customStylePrompt?.trim()
             ? `用户补充的翻译风格要求：\n${config.customStylePrompt.trim()}`
             : "",
+          config.contextEnabled
+            ? "每个段落可能附带 contextBefore 和 contextAfter，它们仅用于理解指代、术语和语气；只翻译该段落自己的 text，不要翻译、重复或合并上下文。"
+            : "",
           config.targetLanguage.includes("中文")
             ? "中文翻译应自然简洁。例如创作语境中的 stay in flow 可译为‘保持创作节奏’或‘不被打断’，不要机械译为‘保持心流’；built a product/app 通常译为‘开发了/做出了’，不要生硬译为‘构建了’。"
             : "",
-          "必须保持每个段落的 id 不变，不合并、不拆分、不改变顺序。",
+          "必须原样保留短 id（如 p1、p2），不合并、不拆分、不改变段落顺序。",
           "只返回 JSON，格式必须是 {\"translations\":[{\"id\":\"段落id\",\"text\":\"译文\"}]}。",
           "不要输出 Markdown 代码块、解释或额外字段。"
         ].join("\n")
       },
       {
         role: "user",
-        content: JSON.stringify({ paragraphs: uncachedParagraphs.map(({ id, text }) => ({ id, text })) })
+        content: JSON.stringify({
+          paragraphs: requestParagraphs.map(({ id, text, contextBefore, contextAfter }) => ({
+            id,
+            text,
+            ...(config.contextEnabled ? { contextBefore, contextAfter } : {})
+          }))
+        })
       }
     ]
   };
@@ -294,7 +392,12 @@ async function translateBatch(paragraphs, signal) {
 
     // 在同一个超时窗口内完成响应体读取和 JSON 解析，避免只限制到响应头。
     const result = await response.json();
-    const freshTranslations = parseTranslationResponse(result, uncachedParagraphs);
+    const wireTranslations = parseTranslationResponse(result, requestParagraphs);
+    const originalIdByWireId = new Map(requestParagraphs.map(({ id, originalId }) => [id, originalId]));
+    const freshTranslations = wireTranslations.map(({ id, text }) => ({
+      id: originalIdByWireId.get(id),
+      text
+    }));
     const keyById = new Map(uncachedParagraphs.map(({ id, cacheKey }) => [id, cacheKey]));
     freshTranslations.forEach(({ id, text }) => {
       cachedByKey.set(keyById.get(id), text);
@@ -338,21 +441,32 @@ function parseTranslationResponse(result, paragraphs) {
   if (!Array.isArray(parsed.translations)) {
     throw new Error("模型返回结果缺少 translations 数组");
   }
-  const validIds = new Set(paragraphs.map((paragraph) => paragraph.id));
-  const seenIds = new Set();
+  if (parsed.translations.length !== paragraphs.length) {
+    throw new Error(`模型返回了 ${parsed.translations.length} 段译文，预期 ${paragraphs.length} 段`);
+  }
   for (const item of parsed.translations) {
     if (!item || typeof item.id !== "string" || typeof item.text !== "string") {
       throw new Error("模型返回了无效的段落结果");
     }
-    if (!validIds.has(item.id) || seenIds.has(item.id) || !item.text.trim()) {
-      throw new Error("模型返回的段落 ID 不完整或重复");
+    if (!item.text.trim()) {
+      throw new Error("模型返回了空译文");
     }
-    seenIds.add(item.id);
   }
-  if (seenIds.size !== validIds.size) {
-    throw new Error("模型没有返回全部段落的译文");
-  }
-  return parsed.translations;
+
+  const expectedIds = paragraphs.map((paragraph) => paragraph.id);
+  const expectedIdSet = new Set(expectedIds);
+  const actualIds = parsed.translations.map((item) => item.id);
+  const actualIdSet = new Set(actualIds);
+  const idsAreComplete = actualIdSet.size === expectedIds.length
+    && actualIds.every((id) => expectedIdSet.has(id));
+  if (idsAreComplete) return parsed.translations;
+
+  // 模型偶尔会重复或改写 ID。数量与译文均完整时按请求顺序兜底关联，避免整批失败；
+  // 数量不符仍拒绝，防止漏译后把其他段落错误地配给原文。
+  return parsed.translations.map((item, index) => ({
+    id: expectedIds[index],
+    text: item.text.trim()
+  }));
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -392,7 +506,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const controller = new AbortController();
   activeRequests.set(requestKey, controller);
-  translateBatch(message.paragraphs, controller)
+  translateBatch(message.paragraphs, controller, message.targetLanguage)
     .then((translations) => sendResponse({ ok: true, translations }))
     .catch((error) => sendResponse({ ok: false, error: error.message }))
     .finally(() => {

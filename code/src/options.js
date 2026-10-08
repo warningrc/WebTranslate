@@ -4,7 +4,8 @@ const DEFAULT_SETTINGS = {
   model: "gpt-4o-mini",
   targetLanguage: "简体中文",
   style: "自然表达",
-  customStylePrompt: "优先使用自然、地道、简洁的中文表达，避免逐词直译和生硬措辞。保留原意、语气和信息，不擅自增删。"
+  customStylePrompt: "优先使用自然、地道、简洁的中文表达，避免逐词直译和生硬措辞。保留原意、语气和信息，不擅自增删。",
+  contextEnabled: true
 };
 const STYLE_PRESETS = {
   "自然表达": "先理解原文含义，再用目标语言自然、地道、简洁地表达。避免逐词直译和生硬措辞，保留原意、语气和信息，不擅自增删。",
@@ -20,12 +21,22 @@ const FIELDS = Object.keys(DEFAULT_SETTINGS);
 async function loadSettings() {
   const settings = await chrome.storage.local.get(DEFAULT_SETTINGS);
   settings.endpoint = normalizeEndpointForForm(settings.endpoint);
+  const targetLanguage = document.getElementById("targetLanguage");
+  // 保留旧版本中用户填写的非内置语言，避免升级后表单变空并意外覆盖配置。
+  if (![...targetLanguage.options].some((option) => option.value === settings.targetLanguage)) {
+    const legacyOption = document.createElement("option");
+    legacyOption.value = settings.targetLanguage;
+    legacyOption.textContent = `${settings.targetLanguage}（原自定义设置）`;
+    targetLanguage.appendChild(legacyOption);
+  }
   // 兼容旧版“忠实直译”配置，并将未知历史风格迁移到可编辑的自定义模式。
   if (settings.style === "忠实直译") settings.style = "忠实准确";
   const supportedStyles = [...Object.keys(STYLE_PRESETS), "自定义"];
   if (!supportedStyles.includes(settings.style)) settings.style = "自定义";
   FIELDS.forEach((field) => {
-    document.getElementById(field).value = settings[field] ?? DEFAULT_SETTINGS[field];
+    const input = document.getElementById(field);
+    if (input.type === "checkbox") input.checked = settings[field] ?? DEFAULT_SETTINGS[field];
+    else input.value = settings[field] ?? DEFAULT_SETTINGS[field];
   });
 }
 
@@ -63,7 +74,9 @@ document.getElementById("settings-form").addEventListener("submit", async (event
   const status = document.getElementById("status");
   const settings = Object.fromEntries(FIELDS.map((field) => [
     field,
-    document.getElementById(field).value.trim()
+    document.getElementById(field).type === "checkbox"
+      ? document.getElementById(field).checked
+      : document.getElementById(field).value.trim()
   ]));
   try {
     settings.endpoint = normalizeEndpointForForm(settings.endpoint);

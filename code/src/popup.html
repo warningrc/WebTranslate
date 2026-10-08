@@ -8,12 +8,16 @@
       h1 { margin: 0 0 6px; font-size: 18px; }
       p { margin: 0; color: #64748b; line-height: 1.5; }
       button { width: 100%; margin-top: 16px; padding: 9px; border: 0; border-radius: 6px; color: #fff; background: #2563eb; cursor: pointer; }
+      button.secondary { margin-top: 8px; border: 1px solid #dbe2ea; color: #475569; background: #fff; }
+      #popup-status { min-height: 15px; margin-top: 8px; font-size: 11px; }
     </style>
   </head>
   <body>
     <h1>WebTranslate</h1>
     <p>在网页中选中一段内容即可调用模型翻译。</p>
     <button id="open-options">打开管理页面</button>
+    <button id="clear-page" class="secondary">清除本次译文</button>
+    <p id="popup-status" role="status" aria-live="polite"></p>
     <script src="popup.js"></script>
   </body>
 </html>

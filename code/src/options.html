@@ -44,7 +44,30 @@
             </label>
             <label class="field" for="targetLanguage">
               <span>目标语言</span>
-              <input id="targetLanguage" placeholder="例如 简体中文" required />
+              <select id="targetLanguage" required>
+                <option value="简体中文">简体中文</option>
+                <option value="繁體中文">繁體中文</option>
+                <option value="English">English</option>
+                <option value="日本語">日本語</option>
+                <option value="한국어">한국어</option>
+                <option value="Français">Français</option>
+                <option value="Deutsch">Deutsch</option>
+                <option value="Español">Español</option>
+                <option value="Português">Português</option>
+                <option value="Italiano">Italiano</option>
+                <option value="Русский">Русский</option>
+                <option value="العربية">العربية</option>
+                <option value="हिन्दी">हिन्दी</option>
+                <option value="ไทย">ไทย</option>
+                <option value="Tiếng Việt">Tiếng Việt</option>
+                <option value="Bahasa Indonesia">Bahasa Indonesia</option>
+                <option value="Türkçe">Türkçe</option>
+                <option value="Nederlands">Nederlands</option>
+                <option value="Polski">Polski</option>
+                <option value="Українська">Українська</option>
+                <option value="עברית">עברית</option>
+                <option value="Svenska">Svenska</option>
+              </select>
             </label>
           </div>
         </section>
@@ -71,6 +94,19 @@
             <textarea id="customStylePrompt" rows="7" placeholder="例如：面向软件开发者，语气简洁自然；专业术语首次出现时保留英文；产品名和变量名不翻译；避免营销腔。"></textarea>
             <small>这些要求会随翻译请求发送给模型。请勿在此填写 API Key 或其他秘密信息。</small>
           </label>
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <span class="section-number">03</span>
+            <div><h2>翻译辅助</h2><p>结合相邻段落理解指代和语气，减少孤立翻译造成的歧义。</p></div>
+          </div>
+          <label class="toggle-field" for="contextEnabled">
+            <span class="toggle-copy"><strong>上下文辅助</strong><small>将选区中相邻段落作为参考，只翻译当前段落。</small></span>
+            <input id="contextEnabled" type="checkbox" />
+            <span class="toggle-switch" aria-hidden="true"></span>
+          </label>
+          <p class="language-note">原文语言会自动识别，并翻译为上方设置的目标语言。</p>
         </section>
 
         <footer class="form-footer">

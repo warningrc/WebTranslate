@@ -3,7 +3,7 @@
   "name": "WebTranslate",
   "version": "0.1.0",
   "description": "选中网页中的大段内容，按段落调用自定义大模型翻译。",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/service-worker.js",
@@ -22,6 +22,7 @@
       "matches": ["<all_urls>"],
       "js": ["src/content.js"],
       "css": ["src/content.css"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ]
