@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebTranslate 管理</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="page-header">
+        <div class="brand-mark">W</div>
+        <div>
+          <p class="eyebrow">WEBTRANSLATE</p>
+          <h1>翻译管理</h1>
+          <p class="subtitle">配置模型服务与翻译偏好，这些设置仅保存在当前浏览器。</p>
+        </div>
+      </header>
+
+      <form id="settings-form">
+        <section class="card">
+          <div class="section-heading">
+            <span class="section-number">01</span>
+            <div><h2>大模型服务</h2><p>支持 OpenAI Chat Completions 兼容接口。</p></div>
+          </div>
+          <div class="field-grid">
+            <label class="field full" for="endpoint">
+              <span>接口地址</span>
+              <input id="endpoint" type="url" placeholder="https://api.openai.com/v1" required />
+              <small>填写 API 基础地址即可；插件会自动补全标准模型和翻译接口路径。</small>
+            </label>
+            <label class="field full" for="apiKey">
+              <span>API Key</span>
+              <div class="secret-field"><input id="apiKey" type="password" autocomplete="off" placeholder="输入模型服务的 API Key" /><button id="toggle-key" type="button" class="text-button">显示</button></div>
+              <small>密钥保存在扩展本地存储中，不会发送到 WebTranslate 自有服务器。</small>
+            </label>
+            <label class="field" for="model">
+              <span>模型名称</span>
+              <div class="model-picker">
+                <input id="model" placeholder="聚焦获取模型列表，也可手动输入" autocomplete="off" required />
+                <div id="model-options" class="model-options" role="listbox" hidden></div>
+              </div>
+              <small>聚焦输入框后会尝试获取服务端模型列表；如果服务不支持，可直接输入模型名。</small>
+            </label>
+            <label class="field" for="targetLanguage">
+              <span>目标语言</span>
+              <input id="targetLanguage" placeholder="例如 简体中文" required />
+            </label>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-heading">
+            <span class="section-number">02</span>
+            <div><h2>翻译风格</h2><p>选择内置风格作为起点，也可以改写成自己的翻译规则。</p></div>
+          </div>
+          <label class="field" for="style">
+            <span>基础风格</span>
+            <select id="style">
+              <option value="自然表达">自然表达</option>
+              <option value="忠实准确">忠实准确</option>
+              <option value="技术文档">技术文档</option>
+              <option value="学术严谨">学术严谨</option>
+              <option value="商务专业">商务专业</option>
+              <option value="轻松口语">轻松口语</option>
+              <option value="自定义">自定义</option>
+            </select>
+          </label>
+          <label class="field custom-style-field" for="customStylePrompt">
+            <span>自定义风格要求</span>
+            <textarea id="customStylePrompt" rows="7" placeholder="例如：面向软件开发者，语气简洁自然；专业术语首次出现时保留英文；产品名和变量名不翻译；避免营销腔。"></textarea>
+            <small>这些要求会随翻译请求发送给模型。请勿在此填写 API Key 或其他秘密信息。</small>
+          </label>
+        </section>
+
+        <footer class="form-footer">
+          <button id="clear-cache" class="secondary-button" type="button">清空本地翻译缓存</button>
+          <span class="cache-note">缓存最多保留 1000 条，90 天后过期。</span>
+          <span id="status" role="status" aria-live="polite"></span>
+          <button class="save-button" type="submit">保存设置</button>
+        </footer>
+      </form>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f4f6fa;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; min-width: 320px; }
+
+.layout { width: min(820px, calc(100% - 40px)); margin: 54px auto 72px; }
+.page-header { display: flex; align-items: center; gap: 17px; margin-bottom: 30px; }
+.brand-mark { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 16px; color: #fff; background: linear-gradient(145deg, #4f7cff, #3157d5); font-size: 25px; font-weight: 700; box-shadow: 0 8px 18px #3157d533; }
+.eyebrow { margin: 0 0 4px; color: #5875cd; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
+h1 { margin: 0; font-size: 26px; letter-spacing: -.5px; }
+.subtitle { margin: 6px 0 0; color: #778198; font-size: 13px; }
+
+.card { margin: 16px 0; padding: 26px 30px 30px; border: 1px solid #e8ebf2; border-radius: 14px; background: #fff; box-shadow: 0 4px 16px #18294b08; }
+.section-heading { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 24px; }
+.section-number { padding-top: 3px; color: #5875cd; font-size: 12px; font-weight: 700; letter-spacing: .6px; }
+h2 { margin: 0; font-size: 17px; }
+.section-heading p { margin: 5px 0 0; color: #8992a4; font-size: 12px; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 16px; }
+.field { display: flex; min-width: 0; flex-direction: column; gap: 7px; color: #414c62; font-size: 12px; font-weight: 600; }
+.field.full { grid-column: 1 / -1; }
+input, select, textarea { width: 100%; border: 1px solid #dce1ea; border-radius: 7px; outline: none; background: #fff; color: #263149; font: 13px inherit; font-family: inherit; font-weight: 400; transition: border-color .15s, box-shadow .15s; }
+input, select { height: 40px; padding: 0 11px; }
+textarea { min-height: 130px; padding: 11px; line-height: 1.65; resize: vertical; }
+input:focus, select:focus, textarea:focus { border-color: #6c89e8; box-shadow: 0 0 0 3px #5578e51a; }
+.field small { color: #929bad; font-size: 11px; font-weight: 400; line-height: 1.55; }
+.secret-field { display: flex; gap: 8px; }
+.secret-field input { flex: 1; }
+.model-picker { position: relative; }
+.model-picker input { display: block; }
+.model-options { position: absolute; z-index: 5; top: calc(100% + 5px); left: 0; right: 0; max-height: 240px; overflow: auto; padding: 5px; border: 1px solid #dce1ea; border-radius: 8px; background: #fff; box-shadow: 0 10px 28px #1720331f; }
+.model-options[hidden] { display: none; }
+.model-option { display: block; width: 100%; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: #34415a; text-align: left; font: inherit; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
+.model-option:hover, .model-option:focus { outline: 0; background: #f0f4ff; color: #3155c8; }
+.model-empty { padding: 8px 9px; color: #8992a4; font-size: 11px; line-height: 1.5; }
+.text-button { min-width: 54px; border: 0; background: transparent; color: #5974c7; cursor: pointer; font-size: 12px; }
+.custom-style-field { margin-top: 19px; }
+.form-footer { display: flex; min-height: 48px; align-items: center; justify-content: flex-end; gap: 16px; }
+#status { margin-right: auto; color: #32815c; font-size: 12px; }
+.secondary-button { height: 36px; padding: 0 11px; border: 1px solid #dce1ea; border-radius: 7px; background: #fff; color: #59647a; cursor: pointer; font: inherit; font-size: 12px; }
+.secondary-button:hover { border-color: #aeb9d0; color: #344261; }
+.cache-note { color: #929bad; font-size: 11px; }
+.save-button { min-width: 116px; height: 40px; padding: 0 18px; border: 0; border-radius: 7px; background: #3e63d8; color: #fff; cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 4px 10px #3e63d82b; }
+.save-button:hover { background: #3155c8; }
+
+@media (max-width: 560px) {
+  .layout { width: min(100% - 24px, 820px); margin-top: 30px; }
+  .card { padding: 21px 18px 23px; }
+  .field-grid { grid-template-columns: 1fr; }
+  .field.full { grid-column: auto; }
+}
